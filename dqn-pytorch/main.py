@@ -5,7 +5,7 @@ import math
 import random
 import numpy as np 
 import time
-
+import datetime
 import gym
 
 from wrappers import *
@@ -19,9 +19,9 @@ import torch.optim as optim
 import torch.nn.functional as F
 import torchvision.transforms as T
 from torch.utils.tensorboard import SummaryWriter
+import argparse
 Transition = namedtuple('Transion', 
                         ('state', 'action', 'next_state', 'reward'))
-
 
 def select_action(state):
     global steps_done
@@ -34,7 +34,6 @@ def select_action(state):
             return policy_net(state.to('cuda')).max(1)[1].view(1,1)
     else:
         return torch.tensor([[random.randrange(4)]], device=device, dtype=torch.long)
-
 
 def optimize_model():
     if len(memory) < BATCH_SIZE:
@@ -86,6 +85,7 @@ def get_state(obs):
     return state.unsqueeze(0)
 
 def train(env, n_episodes, render=False):
+    rewards = []  # 记录所有回合的奖励
     for episode in range(n_episodes):
         obs = env.reset()
         state = get_state(obs)
@@ -118,15 +118,18 @@ def train(env, n_episodes, render=False):
 
             if done:
                 break
+        # add tensorboard
         writer.add_scalar('reward', total_reward, episode)
-        if episode % 20 == 0:
-                print('Total steps: {} \t Episode: {}/{} \t Total reward: {}'.format(steps_done, episode, t, total_reward))
+        writer.add_scalar('Mean reward', np.mean(rewards[-10:]), episode)
+        if episode % 10 == 0:
+            print('Total steps: {} \t Episode: {}/{} Step: {} \t Total reward: {}'.format(steps_done, episode, n_episodes, t, total_reward))
+            writer.add_scalar('Mean reward', np.mean(rewards[-10:]), episode)
     env.close()
     return
 
 def test(env, n_episodes, policy, render=True):
     #  env = gym.wrappers.Monitor(env, './videos/' + 'dqn_pong_video')
-    env = RecordVideo(env, './videos/' + 'dqn_pong_video')
+    env = RecordVideo(env, './videos/' + ENV_NAME)
     for episode in range(n_episodes):
         obs = env.reset()
         state = get_state(obs)
@@ -156,25 +159,61 @@ def test(env, n_episodes, policy, render=True):
     env.close()
     return
 
+
+def get_args():
+    """ 
+    超参数
+    """
+    parser = argparse.ArgumentParser(description="hyperparameters")      
+    parser.add_argument('--algo_name',default='DQN',type=str,help="name of algorithm") 
+    parser.add_argument('--env_name',default='PongNoFrameskip-v4',type=str,help="name of environment") # PongNoFrameskip, SpaceInvadersNoFrameskip
+    parser.add_argument('--train_eps',default=400,type=int,help="episodes of training")
+    parser.add_argument('--test_eps',default=5,type=int,help="episodes of testing")
+    parser.add_argument('--ep_max_steps',default = 100000,type=int,help="steps per episode, much larger value can simulate infinite steps")
+    parser.add_argument('--gamma',default=0.99,type=float,help="discounted factor")
+    parser.add_argument('--epsilon_start',default=0.5,type=float,help="initial value of epsilon")
+    parser.add_argument('--epsilon_end',default=0.01,type=float,help="final value of epsilon")
+    parser.add_argument('--epsilon_decay',default=1000000,type=int,help="decay rate of epsilon, the higher value, the slower decay")
+    parser.add_argument('--lr',default=0.0001,type=float,help="learning rate")
+    parser.add_argument('--memory_capacity',default=100000,type=int,help="memory capacity")
+    parser.add_argument('--batch_size',default=32,type=int)
+    parser.add_argument('--target_update',default=1000,type=int)
+    parser.add_argument('--device',default='cuda',type=str,help="cpu or cuda") 
+    parser.add_argument('--seed',default=10,type=int,help="seed") 
+    parser.add_argument('--render', action='store_true', help='render the environment')
+    args = parser.parse_args([])
+    args = {**vars(args)}  # 转换成字典类型    
+    ## 打印超参数
+    print("超参数")
+    print(''.join(['=']*80))
+    tplt = "{:^20}\t{:^20}\t{:^20}"
+    print(tplt.format("Name", "Value", "Type"))
+    for k,v in args.items():
+        print(tplt.format(k,v,str(type(v))))   
+    print(''.join(['=']*80))      
+    return args
+
 if __name__ == '__main__':
+    cfg = get_args() 
     # set device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = cfg['device']
 
     # hyperparameters
-    BATCH_SIZE = 32
-    GAMMA = 0.99
-    EPS_START = 0.5
-    EPS_END = 0.02
-    EPS_DECAY = 1000000
-    TARGET_UPDATE = 1000
-    RENDER = False
-    lr = 1e-4
+    ALGO_NAME = cfg['algo_name']
+    BATCH_SIZE = cfg['batch_size']
+    GAMMA = cfg['gamma']
+    EPS_START = cfg['epsilon_start']
+    EPS_END = cfg['epsilon_end']
+    EPS_DECAY = cfg['epsilon_decay']
+    TARGET_UPDATE = cfg['target_update']
+    RENDER = cfg['render']
+    lr = cfg['lr']
     INITIAL_MEMORY = 10000
-    MEMORY_SIZE = 10 * INITIAL_MEMORY
-    #
-    import datetime
-    writer = SummaryWriter('runs/dqn_pong_space_{}'.format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S")))
-    #
+    # MEMORY_SIZE = 10 * INITIAL_MEMORY
+    MEMORY_SIZE = cfg['memory_capacity']
+    ENV_NAME = cfg['env_name']
+    RENDER = True
+    
     # create networks
     policy_net = DQN(n_actions=4).to(device)
     target_net = DQN(n_actions=4).to(device)
@@ -186,17 +225,20 @@ if __name__ == '__main__':
     steps_done = 0
     
     # create environment
-    env = gym.make("PongNoFrameskip-v4")
+    env = gym.make(ENV_NAME)
     env = make_env(env)
     
     # initialize replay memory
     memory = ReplayMemory(MEMORY_SIZE)
     
+    # tensorboard
+    writer = SummaryWriter(f'runs/{ALGO_NAME}_{ENV_NAME}_{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}')
+    
     # train model
-    train(env, 400)
-    torch.save(policy_net, "dqn_pong_model")
-    policy_net = torch.load("dqn_pong_model")
-    test(env, 1, policy_net, render=False)
+    train(env, cfg['train_eps'])
+    torch.save(policy_net, f"{ALGO_NAME}_{ENV_NAME}_model.pth")
+    policy_net = torch.load( f"{ALGO_NAME}_{ENV_NAME}_model.pth")
+    test(env, cfg['test_eps'], policy_net, render=False)
 
 ##########################################################################
     # TARGET_UPDATE = 2000
