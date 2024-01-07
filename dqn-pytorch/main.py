@@ -30,6 +30,7 @@ Transition = namedtuple('Transion',
 def select_action(state):
     global steps_done
     global epsilon
+    # 生成一个0-1之间的随机数
     sample = random.random()
     eps_threshold = EPS_END + (EPS_START - EPS_END)* \
         math.exp(-1. * steps_done / EPS_DECAY)
@@ -125,11 +126,13 @@ def train(env, n_episodes, render=False):
 
             if done:
                 break
+        rewards.append(total_reward)
         # add tensorboard
         writer.add_scalar('reward', total_reward, episode)
-        
+        writer.add_scalar('epsilon', epsilon, episode)
         if episode % 10 == 0:
-            print('Total steps: {} \t Episode: {}/{} \t Step: {} \t Total reward: {} \t Epislon: {:.3f}'.format(steps_done, episode, n_episodes, t, total_reward, epsilon))
+            print('Total steps: {} \t Episode: {}/{} \t Step: {} \t Total/Mean reward: {}/{:.1f} \t Epislon: {:.3f}'.format(
+                steps_done, episode, n_episodes, t, total_reward, np.mean(rewards[-10:]), epsilon))
             writer.add_scalar('Mean reward', np.mean(rewards[-10:]), episode)
     env.close()
     return
