@@ -131,7 +131,7 @@ def train(env, n_episodes, render=False):
         writer.add_scalar('reward', total_reward, episode)
         writer.add_scalar('epsilon', epsilon, episode)
         if episode % 10 == 0:
-            print('Total steps: {} \t Episode: {}/{} \t Step: {} \t Total/Mean reward: {}/{:.1f} \t Epislon: {:.3f}'.format(
+            print('Total steps: {}\tEpisode: {}/{}\tStep: {}\tTotal/Mean reward: {}/{:.1f}\tEpislon: {:.2f}'.format(
                 steps_done, episode, n_episodes, t, total_reward, np.mean(rewards[-10:]), epsilon))
             writer.add_scalar('Mean reward', np.mean(rewards[-10:]), episode)
     env.close()
