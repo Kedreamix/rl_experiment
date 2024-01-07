@@ -1,4 +1,5 @@
 import copy
+import os
 from collections import namedtuple
 from itertools import count
 import math
@@ -20,6 +21,9 @@ import torch.nn.functional as F
 import torchvision.transforms as T
 from torch.utils.tensorboard import SummaryWriter
 import argparse
+import warnings
+warnings.filterwarnings('ignore')
+
 Transition = namedtuple('Transion', 
                         ('state', 'action', 'next_state', 'reward'))
 
@@ -28,12 +32,14 @@ def select_action(state):
     sample = random.random()
     eps_threshold = EPS_END + (EPS_START - EPS_END)* \
         math.exp(-1. * steps_done / EPS_DECAY)
+    epsilon = EPS_END + (EPS_START - EPS_END)* \
+        math.exp(-1. * steps_done / EPS_DECAY)
     steps_done += 1
-    if sample > eps_threshold:
+    if sample > epsilon:
         with torch.no_grad():
             return policy_net(state.to('cuda')).max(1)[1].view(1,1)
     else:
-        return torch.tensor([[random.randrange(4)]], device=device, dtype=torch.long)
+        return torch.tensor([[random.randrange(N_ACTIONS)]], device=device, dtype=torch.long)
 
 def optimize_model():
     if len(memory) < BATCH_SIZE:
@@ -120,9 +126,9 @@ def train(env, n_episodes, render=False):
                 break
         # add tensorboard
         writer.add_scalar('reward', total_reward, episode)
-        writer.add_scalar('Mean reward', np.mean(rewards[-10:]), episode)
+        
         if episode % 10 == 0:
-            print('Total steps: {} \t Episode: {}/{} Step: {} \t Total reward: {}'.format(steps_done, episode, n_episodes, t, total_reward))
+            print('Total steps: {} \t Episode: {}/{} \t Step: {} \t Total reward: {} \t Epislon: {.3f}'.format(steps_done, episode, n_episodes, t, total_reward, epsilon))
             writer.add_scalar('Mean reward', np.mean(rewards[-10:]), episode)
     env.close()
     return
@@ -159,7 +165,6 @@ def test(env, n_episodes, policy, render=True):
     env.close()
     return
 
-
 def get_args():
     """ 
     超参数
@@ -181,7 +186,7 @@ def get_args():
     parser.add_argument('--device',default='cuda',type=str,help="cpu or cuda") 
     parser.add_argument('--seed',default=10,type=int,help="seed") 
     parser.add_argument('--render', action='store_true', help='render the environment')
-    args = parser.parse_args([])
+    args = parser.parse_args()
     args = {**vars(args)}  # 转换成字典类型    
     ## 打印超参数
     print("超参数")
@@ -213,20 +218,23 @@ if __name__ == '__main__':
     MEMORY_SIZE = cfg['memory_capacity']
     ENV_NAME = cfg['env_name']
     RENDER = True
+
+    steps_done = 0
+    epsilon = EPS_START
     
+    # create environment
+    env = gym.make(ENV_NAME, render_mode='rgb_array')
+    env = make_env(env)
+
+    N_ACTIONS = env.action_space.n
     # create networks
-    policy_net = DQN(n_actions=4).to(device)
-    target_net = DQN(n_actions=4).to(device)
+    policy_net = DQN(n_actions=N_ACTIONS).to(device)
+    target_net = DQN(n_actions=N_ACTIONS).to(device)
+    target_net.load_state_dict(policy_net.state_dict())
     target_net.load_state_dict(policy_net.state_dict())
     
     # setup optimizer
     optimizer = optim.Adam(policy_net.parameters(), lr=lr)
-    
-    steps_done = 0
-    
-    # create environment
-    env = gym.make(ENV_NAME)
-    env = make_env(env)
     
     # initialize replay memory
     memory = ReplayMemory(MEMORY_SIZE)
@@ -236,157 +244,9 @@ if __name__ == '__main__':
     
     # train model
     train(env, cfg['train_eps'])
-    torch.save(policy_net, f"{ALGO_NAME}_{ENV_NAME}_model.pth")
-    policy_net = torch.load( f"{ALGO_NAME}_{ENV_NAME}_model.pth")
+    
+    os.makedirs('checkpoints', exist_ok=True)
+    save_path = f"checkpoints/{ALGO_NAME}_{ENV_NAME}_model.pth"
+    torch.save(policy_net, save_path)
+    policy_net = torch.load( save_path)
     test(env, cfg['test_eps'], policy_net, render=False)
-
-##########################################################################
-    # TARGET_UPDATE = 2000
-    # BATCH_SIZE = 64
-    # GAMMA = 0.99
-    # print("BATCH_SIZE = 64 down")  # 打印结束信息
-
-    # # create networks
-    # policy_net = DQN(n_actions=4).to(device)
-    # target_net = DQN(n_actions=4).to(device)
-    # target_net.load_state_dict(policy_net.state_dict())
-
-    # # setup optimizer
-    # optimizer = optim.Adam(policy_net.parameters(), lr=lr)
-
-    # steps_done = 0
-
-    # # create environment
-    # env = gym.make("PongNoFrameskip-v4")
-    # env = make_env(env)
-
-    # # initialize replay memory
-    # memory = ReplayMemory(MEMORY_SIZE)
-
-    # # train model
-    # train(env, 400)
-    # torch.save(policy_net, "dqn_pong_model")
-    # policy_net = torch.load("dqn_pong_model")
-    # test(env, 1, policy_net, render=False)
-
-    ##########################################################################
-    # TARGET_UPDATE = 1000
-    # BATCH_SIZE = 64
-    # GAMMA = 0.99
-    # print("BATCH_SIZE = 64 down")  # 打印结束信息
-
-    # # create networks
-    # policy_net = DQN(n_actions=4).to(device)
-    # target_net = DQN(n_actions=4).to(device)
-    # target_net.load_state_dict(policy_net.state_dict())
-
-    # # setup optimizer
-    # optimizer = optim.Adam(policy_net.parameters(), lr=lr)
-
-    # steps_done = 0
-
-    # # create environment
-    # env = gym.make("PongNoFrameskip-v4")
-    # env = make_env(env)
-
-    # # initialize replay memory
-    # memory = ReplayMemory(MEMORY_SIZE)
-
-    # # train model
-    # train(env, 400)
-    # torch.save(policy_net, "dqn_pong_model")
-    # policy_net = torch.load("dqn_pong_model")
-    # test(env, 1, policy_net, render=False)
-
-#
-# ##########################################################################
-    # TARGET_UPDATE = 1000
-    # BATCH_SIZE = 128
-    # GAMMA = 0.99
-    # print("BATCH_SIZE = 128 down")  # 打印结束信息
-
-    # # create networks
-    # policy_net = DQN(n_actions=4).to(device)
-    # target_net = DQN(n_actions=4).to(device)
-    # target_net.load_state_dict(policy_net.state_dict())
-
-    # # setup optimizer
-    # optimizer = optim.Adam(policy_net.parameters(), lr=lr)
-
-    # steps_done = 0
-
-    # # create environment
-    # env = gym.make("PongNoFrameskip-v4")
-    # env = make_env(env)
-
-    # # initialize replay memory
-    # memory = ReplayMemory(MEMORY_SIZE)
-
-    # # train model
-    # train(env, 400)
-    # torch.save(policy_net, "dqn_pong_model")
-    # policy_net = torch.load("dqn_pong_model")
-    # test(env, 1, policy_net, render=False)
-
-#
-#
-# ##########################################################################
-#     TARGET_UPDATE = 1000
-#     BATCH_SIZE = 32
-#     GAMMA = 0.9
-#     print("GAMMA = 0.9 down")  # 打印结束信息
-#
-#     # create networks
-#     policy_net = DQN(n_actions=4).to(device)
-#     target_net = DQN(n_actions=4).to(device)
-#     target_net.load_state_dict(policy_net.state_dict())
-#
-#     # setup optimizer
-#     optimizer = optim.Adam(policy_net.parameters(), lr=lr)
-#
-#     steps_done = 0
-#
-#     # create environment
-#     env = gym.make("PongNoFrameskip-v4")
-#     env = make_env(env)
-#
-#     # initialize replay memory
-#     memory = ReplayMemory(MEMORY_SIZE)
-#
-#     # train model
-#     train(env, 400)
-#     torch.save(policy_net, "dqn_pong_model")
-#     policy_net = torch.load("dqn_pong_model")
-#     test(env, 1, policy_net, render=False)
-#
-#
-#
-# ##########################################################################
-#     TARGET_UPDATE = 1000
-#     BATCH_SIZE = 32
-#     GAMMA = 0.8
-#     print("GAMMA = 0.8 down")  # 打印结束信息
-#
-#     # create networks
-#     policy_net = DQN(n_actions=4).to(device)
-#     target_net = DQN(n_actions=4).to(device)
-#     target_net.load_state_dict(policy_net.state_dict())
-#
-#     # setup optimizer
-#     optimizer = optim.Adam(policy_net.parameters(), lr=lr)
-#
-#     steps_done = 0
-#
-#     # create environment
-#     env = gym.make("PongNoFrameskip-v4")
-#     env = make_env(env)
-#
-#     # initialize replay memory
-#     memory = ReplayMemory(MEMORY_SIZE)
-#
-#     # train model
-#     train(env, 400)
-#     torch.save(policy_net, "dqn_pong_model")
-#     policy_net = torch.load("dqn_pong_model")
-#     test(env, 1, policy_net, render=False)
-#
