@@ -1,4 +1,4 @@
-import copy
+import time
 import os
 from collections import namedtuple
 from itertools import count
@@ -131,8 +131,8 @@ def train(env, n_episodes, render=False):
         writer.add_scalar('reward', total_reward, episode)
         writer.add_scalar('epsilon', epsilon, episode)
         if episode % 10 == 0:
-            print('Total steps: {}\tEpisode: {}/{} \tStep: {}\tTotal/Mean reward: {}/{:.1f} \tEpislon: {:.2f}'.format(
-                steps_done, episode, n_episodes, t, total_reward, np.mean(rewards[-10:]), epsilon))
+            print('Step/Total steps: {}/{} \t Episode: {}/{} \t Total/Mean reward: {}/{:.1f} \t Epislon: {:.2f}'.format(
+                t, steps_done, episode, n_episodes, total_reward, np.mean(rewards[-10:]), epsilon))
             writer.add_scalar('Mean reward', np.mean(rewards[-10:]), episode)
     env.close()
     return
@@ -244,13 +244,17 @@ if __name__ == '__main__':
     memory = ReplayMemory(MEMORY_SIZE)
     
     # tensorboard
-    writer = SummaryWriter(f'runs/{ALGO_NAME}_{ENV_NAME}_{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}')
+    tensorboard_path = f'runs/{ALGO_NAME}_{ENV_NAME}_{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}'
+    writer = SummaryWriter(tensorboard_path)
     
+    start = time.time()
     # train model
     train(env, cfg['train_eps'])
+    print('Tensorboard command: tensorboard --logdir=' + tensorboard_path)
     
     os.makedirs('checkpoints', exist_ok=True)
     save_path = f"checkpoints/{ALGO_NAME}_{ENV_NAME}_model.pth"
     torch.save(policy_net, save_path)
     policy_net = torch.load( save_path)
     test(env, cfg['test_eps'], policy_net, render=False)
+    print("Using time {} hours".format((time.time()-start)/3600))
