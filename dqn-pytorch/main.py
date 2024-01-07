@@ -188,7 +188,7 @@ def get_args():
     parser.add_argument('--batch_size',default=32,type=int)
     parser.add_argument('--target_update',default=1000,type=int)
     parser.add_argument('--device',default='cuda',type=str,help="cpu or cuda") 
-    parser.add_argument('--seed',default=10,type=int,help="seed") 
+    # parser.add_argument('--seed',default=10,type=int,help="seed") 
     parser.add_argument('--render', action='store_true', help='render the environment')
     args = parser.parse_args()
     args = {**vars(args)}  # 转换成字典类型    
