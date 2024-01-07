@@ -27,6 +27,20 @@ warnings.filterwarnings('ignore')
 Transition = namedtuple('Transion', 
                         ('state', 'action', 'next_state', 'reward'))
 
+def all_seed(env, seed = 1):
+    ''' 万能的seed函数
+    '''
+    env.seed(seed) # env config
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed) # config for CPU
+    torch.cuda.manual_seed(seed) # config for GPU
+    os.environ['PYTHONHASHSEED'] = str(seed) # config for python scripts
+    # config for cudnn
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.enabled = False
+
 def select_action(state):
     global steps_done
     global epsilon
@@ -188,7 +202,7 @@ def get_args():
     parser.add_argument('--batch_size',default=32,type=int)
     parser.add_argument('--target_update',default=1000,type=int)
     parser.add_argument('--device',default='cuda',type=str,help="cpu or cuda") 
-    # parser.add_argument('--seed',default=10,type=int,help="seed") 
+    parser.add_argument('--seed',default=10,type=int,help="seed") 
     parser.add_argument('--render', action='store_true', help='render the environment')
     args = parser.parse_args()
     args = {**vars(args)}  # 转换成字典类型    
@@ -221,6 +235,7 @@ if __name__ == '__main__':
     # MEMORY_SIZE = 10 * INITIAL_MEMORY
     MEMORY_SIZE = cfg['memory_capacity']
     ENV_NAME = cfg['env_name']
+    SEED = cfg['seed']
     RENDER = True
 
     steps_done = 0
@@ -229,6 +244,8 @@ if __name__ == '__main__':
     # create environment
     env = gym.make(ENV_NAME, render_mode='rgb_array')
     env = make_env(env)
+    if SEED != 0:
+        all_seed(env, SEED)
 
     N_ACTIONS = env.action_space.n
     # create networks
