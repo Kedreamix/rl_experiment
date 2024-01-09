@@ -48,8 +48,11 @@ def select_action(state):
     sample = random.random()
     eps_threshold = EPS_END + (EPS_START - EPS_END)* \
         math.exp(-1. * steps_done / EPS_DECAY)
-    epsilon = EPS_END + (EPS_START - EPS_END)* \
-        math.exp(-1. * steps_done / EPS_DECAY)
+    # epsilon = EPS_END + (EPS_START - EPS_END)* \
+    #     math.exp(-1. * steps_done / EPS_DECAY)
+    epsilon = EPS_START - (EPS_START - EPS_END) * steps_done / LINEAR_DECAY_FRAMES
+    if steps_done > LINEAR_DECAY_FRAMES:
+        epsilon = EPS_END
     steps_done += 1
     if sample > epsilon:
         with torch.no_grad():
@@ -154,8 +157,11 @@ def train(env, n_episodes, render=False):
 
 def test(env, n_episodes, policy, render=True):
     #  env = gym.wrappers.Monitor(env, './videos/' + 'dqn_pong_video')
-    env = RecordVideo(env, './videos/' + ENV_NAME)
+    video_dir = './videos/' + f'{ALGO_NAME}_{ENV_NAME}_{timestamp}'
+    env = RecordVideo(env, video_dir, episode_trigger = lambda x: x < 3)
     for episode in range(n_episodes):
+        # env = RecordVideo(env, video_dir + f'/{episode}')
+        # print(video_dir + f'_{episode}')
         obs = env.reset()
         state = get_state(obs)
         total_reward = 0.0
@@ -180,7 +186,7 @@ def test(env, n_episodes, policy, render=True):
             if done:
                 print("Finished Episode {} with reward {}".format(episode, total_reward))
                 break
-
+    print("Video saved in {}".format(video_dir))
     env.close()
     return
 
@@ -191,12 +197,13 @@ def get_args():
     parser = argparse.ArgumentParser(description="hyperparameters")      
     parser.add_argument('--algo_name',default='DQN',type=str,help="name of algorithm") 
     parser.add_argument('--env_name',default='PongNoFrameskip-v4',type=str,help="name of environment") # PongNoFrameskip, SpaceInvadersNoFrameskip
-    parser.add_argument('--train_eps',default=400,type=int,help="episodes of training")
-    parser.add_argument('--test_eps',default=5,type=int,help="episodes of testing")
-    parser.add_argument('--ep_max_steps',default = 100000,type=int,help="steps per episode, much larger value can simulate infinite steps")
+    parser.add_argument('--train_eps',default=1000,type=int,help="episodes of training")
+    parser.add_argument('--ep_life', action='store_true', help='ep_life')
+    parser.add_argument('--test_eps',default=3,type=int,help="episodes of testing")
+    parser.add_argument('--ep_max_steps',default=100000,type=int,help="steps per episode, much larger value can simulate infinite steps")
     parser.add_argument('--gamma',default=0.99,type=float,help="discounted factor")
-    parser.add_argument('--epsilon_start',default=0.5,type=float,help="initial value of epsilon")
-    parser.add_argument('--epsilon_end',default=0.01,type=float,help="final value of epsilon")
+    parser.add_argument('--epsilon_start',default=0.99,type=float,help="initial value of epsilon")
+    parser.add_argument('--epsilon_end',default=0.1,type=float,help="final value of epsilon")
     parser.add_argument('--epsilon_decay',default=1000000,type=int,help="decay rate of epsilon, the higher value, the slower decay")
     parser.add_argument('--lr',default=0.0001,type=float,help="learning rate")
     parser.add_argument('--memory_capacity',default=100000,type=int,help="memory capacity")
@@ -205,6 +212,9 @@ def get_args():
     parser.add_argument('--device',default='cuda',type=str,help="cpu or cuda") 
     parser.add_argument('--seed',default=10,type=int,help="seed") 
     parser.add_argument('--render', action='store_true', help='render the environment')
+    parser.add_argument('--test', default='', help='resume from checkpoint')
+    parser.add_argument('--in_channels', default=4, type = int, help='input channels')
+    parser.add_argument('--log', default='', help='log to tensorboard')
     args = parser.parse_args()
     args = {**vars(args)}  # 转换成字典类型    
     ## 打印超参数
@@ -237,44 +247,53 @@ if __name__ == '__main__':
     MEMORY_SIZE = cfg['memory_capacity']
     ENV_NAME = cfg['env_name']
     SEED = cfg['seed']
+    TEST = cfg['test']
+    EP_LIFE = cfg['ep_life']
+    LINEAR_DECAY_FRAMES = 1000000
     RENDER = True
 
     steps_done = 0
     epsilon = EPS_START
     
     # create environment
-    env = gym.make(ENV_NAME, render_mode='rgb_array')
-    env = make_env(env)
+    env = gym.make(ENV_NAME, 
+                   render_mode='rgb_array')
+    env = make_env(env, episodic_life = EP_LIFE, k = cfg['in_channels'])
     if SEED != 0:
         all_seed(env, SEED)
 
     N_ACTIONS = env.action_space.n
     # create networks
-    policy_net = DQN(n_actions=N_ACTIONS).to(device)
-    target_net = DQN(n_actions=N_ACTIONS).to(device)
+    policy_net = DQN(in_channels=cfg['in_channels'], n_actions=N_ACTIONS).to(device)
+    target_net = DQN(in_channels=cfg['in_channels'], n_actions=N_ACTIONS).to(device)
     target_net.load_state_dict(policy_net.state_dict())
     target_net.load_state_dict(policy_net.state_dict())
-    
-    # setup optimizer
-    optimizer = optim.Adam(policy_net.parameters(), lr=lr)
-    
-    # initialize replay memory
-    memory = ReplayMemory(MEMORY_SIZE)
-    
     # tensorboard
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    tensorboard_path = f'runs/{ALGO_NAME}_{ENV_NAME}_{timestamp}'
-    writer = SummaryWriter(tensorboard_path)
-    
     start = time.time()
     
-    os.makedirs('checkpoints', exist_ok=True)
-    save_path = f"checkpoints/{ALGO_NAME}_{ENV_NAME}_{timestamp}_model.pth"
-    
-    # train model
-    train(env, cfg['train_eps'])
-    print('Tensorboard command: tensorboard --logdir=' + tensorboard_path)
-    
-    policy_net = torch.load( save_path)
-    test(env, cfg['test_eps'], policy_net, render=False)
+    if not TEST:   
+        save_name =  f'{ALGO_NAME}_{ENV_NAME}_{timestamp}'
+        if not cfg['log'] == '':
+            save_name = cfg['log']
+        
+        # setup optimizer
+        optimizer = optim.Adam(policy_net.parameters(), lr=lr)
+        
+        # initialize replay memory
+        memory = ReplayMemory(MEMORY_SIZE)
+
+        tensorboard_path = f'runs/{save_name}'
+        writer = SummaryWriter(tensorboard_path)
+
+        os.makedirs('checkpoints', exist_ok=True)
+        save_path = f"checkpoints/{save_name}_model.pth"
+        
+        # train model
+        train(env, cfg['train_eps'])
+        print('Tensorboard command: tensorboard --logdir=' + tensorboard_path)
+    else:
+        save_path = TEST
+    policy_net = torch.load(save_path)
+    test(env, cfg['test_eps'], policy_net, render=RENDER)
     print("Using time {} hours".format((time.time()-start)/3600))

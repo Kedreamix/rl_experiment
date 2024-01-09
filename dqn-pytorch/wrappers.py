@@ -9,18 +9,18 @@ import copy
 import cv2
 cv2.ocl.setUseOpenCL(False)
 
-def make_env(env, stack_frames=True, episodic_life=True, clip_rewards=False, scale=False):
+def make_env(env, stack_frames=True, episodic_life=True, clip_rewards=False, scale=False, k = 4):
     if episodic_life:
         env = EpisodicLifeEnv(env)
 
     env = NoopResetEnv(env, noop_max=30)
-    env = MaxAndSkipEnv(env, skip=4)
+    env = MaxAndSkipEnv(env, skip= k)
     if 'FIRE' in env.unwrapped.get_action_meanings():
         env = FireResetEnv(env)
 
     env = WarpFrame(env)
     if stack_frames:
-        env = FrameStack(env, 4)
+        env = FrameStack(env, k)
     if clip_rewards:
         env = ClipRewardEnv(env)
     return env
